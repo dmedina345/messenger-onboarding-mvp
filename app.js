@@ -1,9 +1,101 @@
 /**
- * Messenger onboarding MVP v4.2 — static prototype.
+ * Messenger onboarding MVP v4.5.0 — static prototype.
  * Path A: interests → DOB → loader → For You (no progress bar)
  * Path B: daily → interests → mirror + samples → DOB → auto loader → For You (Step 5)
  * Path C: guided journey → plan Collection + gentle Give mention (Step 6)
+ * Path D: Coach-led conversational onboarding → DOB → mirror → loader → feed
  */
+
+const CARRYING_OPTIONS = [
+  {
+    id: "anxious",
+    label: "Feeling anxious",
+    anchor: {
+      title: "Peace for today",
+      body: "Do not be anxious about anything, but in every situation, by prayer and petition, with thanksgiving, present your requests to God.",
+      ref: "Philippians 4:6",
+    },
+    coachReply:
+      "Anxiety often means something matters deeply to you. Name what's heavy — then we'll breathe and bring it to God together.",
+  },
+  {
+    id: "grieving",
+    label: "Grieving or hurting",
+    anchor: {
+      title: "God is close to the brokenhearted",
+      body: "The Lord is close to the brokenhearted and saves those who are crushed in spirit.",
+      ref: "Psalm 34:18",
+    },
+    coachReply:
+      "You don't have to carry this alone. Grief isn't a problem to fix — it's a season to walk through. I'm here when you're ready to talk.",
+  },
+  {
+    id: "doubting",
+    label: "Doubting or questioning",
+    anchor: {
+      title: "Honest questions welcome",
+      body: "I do believe; help me overcome my unbelief.",
+      ref: "Mark 9:24",
+    },
+    coachReply:
+      "Doubt isn't the opposite of faith — it's often part of a deeper search. What question is loudest for you right now?",
+  },
+  {
+    id: "lonely",
+    label: "Lonely or disconnected",
+    anchor: {
+      title: "You are not alone",
+      body: "God sets the lonely in families. Even when you feel unseen, you are held.",
+      ref: "Psalm 68:6",
+    },
+    coachReply:
+      "Loneliness is exhausting. Let's start small — one honest sentence about what you need today.",
+  },
+  {
+    id: "grateful",
+    label: "Grateful but wanting more",
+    anchor: {
+      title: "Strength for the journey",
+      body: "Be strong and courageous. Do not be afraid; do not be discouraged, for the Lord your God will be with you wherever you go.",
+      ref: "Joshua 1:9",
+    },
+    coachReply:
+      "Gratitude and hunger can live together. What would 'more' look like for you this week — deeper peace, clearer direction, or steadier habits?",
+  },
+  {
+    id: "curious",
+    label: "Curious about faith",
+    anchor: {
+      title: "A place to begin",
+      body: "Ask, and it will be given to you; seek, and you will find; knock, and the door will be opened to you.",
+      ref: "Matthew 7:7",
+    },
+    coachReply:
+      "Curiosity is a gift. There's no wrong first question — tell me what made you open Messenger today.",
+  },
+  {
+    id: "habit",
+    label: "Building a habit",
+    anchor: {
+      title: "Small steps, steady rhythm",
+      body: "Let us not become weary in doing good, for at the proper time we will reap a harvest if we do not give up.",
+      ref: "Galatians 6:9",
+    },
+    coachReply:
+      "Habits stick when they're tiny and tied to something you already do. What's one moment in your day we could anchor to?",
+  },
+  {
+    id: "exploring",
+    label: "Just exploring",
+    anchor: {
+      title: "Welcome — no pressure",
+      body: "Come to me, all you who are weary and burdened, and I will give you rest.",
+      ref: "Matthew 11:28",
+    },
+    coachReply:
+      "Exploring is enough for today. Browse at your pace — I'm here when you want to go deeper.",
+  },
+];
 
 const INTENTION_CHIPS = [
   "Peace in anxious moments",
@@ -95,7 +187,7 @@ const state = {
 };
 
 const PATH_C_STEPS = 6;
-
+const PATH_D_STEPS = 6;
 const JOURNEY_DAYS = [
   { day: 1, title: "Strength for the journey", type: "Daily anchor", status: "complete" },
   { day: 2, title: "A moment of stillness", type: "Guided prayer", status: "upcoming" },
@@ -118,7 +210,15 @@ const COACH_REPLIES = {
   apply: "One small step today: read the anchor slowly once more, then write one sentence about what you need strength for.",
 };
 
+const D_NEED_OPTIONS = [
+  { id: "verse", label: "A verse to hold onto" },
+  { id: "prayer", label: "A prayer" },
+  { id: "learn", label: "Something to learn" },
+  { id: "sit", label: "Just sit with it" },
+];
+
 let loaderTimeoutId = null;
+let pathDTypingTimeoutId = null;
 
 function resetState(path) {
   state.path = path;
@@ -145,7 +245,16 @@ function resetState(path) {
   state.committed7days = false;
   state.planRevealed = false;
   state.bCoachStarter = "";
+  state.carrying = "";
+  state.dNeed = "";
+  state.dTurn = 0;
+  state.dTyping = false;
+  state.dGreetingReady = false;
+  state.dAckReady = false;
+  state.dAnchorReady = false;
+  state.dSamplesReady = false;
   cancelLoader();
+  cancelPathDTyping();
 }
 
 function getRoute() {
@@ -197,6 +306,10 @@ function topBarC(stepIndex) {
   return topBarProgress(stepIndex, PATH_C_STEPS);
 }
 
+function topBarD(stepIndex) {
+  return topBarProgress(stepIndex, PATH_D_STEPS);
+}
+
 function topBarProgress(stepIndex, total, { showSkip = false, skipAction = "" } = {}) {
   const stepNum = stepIndex + 1;
   const skip = showSkip && skipAction
@@ -217,6 +330,275 @@ function cancelLoader() {
     clearTimeout(loaderTimeoutId);
     loaderTimeoutId = null;
   }
+}
+
+function cancelPathDTyping() {
+  if (pathDTypingTimeoutId) {
+    clearTimeout(pathDTypingTimeoutId);
+    pathDTypingTimeoutId = null;
+  }
+}
+
+function startPathDTyping(onDone, delay = 750) {
+  cancelPathDTyping();
+  state.dTyping = true;
+  render();
+  pathDTypingTimeoutId = setTimeout(() => {
+    pathDTypingTimeoutId = null;
+    state.dTyping = false;
+    onDone();
+    render();
+  }, delay);
+}
+
+function getDNeed() {
+  return D_NEED_OPTIONS.find((n) => n.id === state.dNeed) || null;
+}
+
+function pathDProgressIndex() {
+  if (state.step === 0) return Math.min(state.dTurn, 2);
+  if (state.step === 1) return 3;
+  if (state.step === 2) return 4;
+  if (state.step === 3) return 5;
+  return 5;
+}
+
+function pathDSampleSuggestions() {
+  const carrying = getCarrying();
+  if (!carrying) return [];
+
+  const byNeed = {
+    verse: "Faith & Spirituality",
+    prayer: "Prayer",
+    learn: "Learning & Courses",
+    sit: "Mental Wellness",
+  };
+  const byCarrying = {
+    anxious: "Mental Wellness",
+    grieving: "Mental Wellness",
+    doubting: "Faith & Spirituality",
+    lonely: "Mental Wellness",
+    grateful: "Personal Growth",
+    curious: "Learning & Courses",
+    habit: "Personal Growth",
+    exploring: "Other",
+  };
+
+  const interests = [
+    byNeed[state.dNeed],
+    byCarrying[carrying.id],
+    "Faith & Spirituality",
+    "Prayer",
+  ].filter(Boolean);
+
+  const seen = new Set();
+  const items = [];
+  for (const interest of interests) {
+    for (const s of SAMPLE_CONTENT[interest] || []) {
+      const key = sampleKey(s);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push({ ...s, interest, key });
+      if (items.length >= 2) return items;
+    }
+  }
+  return items;
+}
+
+function pathDPersonalizedFeedSamples() {
+  const all = pathDSampleSuggestions();
+  const liked = all.filter((s) => state.sampleLiked.has(s.key));
+  const filtered = all.filter((s) => !state.sampleDisliked.has(s.key));
+  if (liked.length) return liked;
+  if (filtered.length) return filtered;
+  return all;
+}
+
+function pathDAnchorReflection() {
+  const need = state.dNeed;
+  if (need === "prayer") return "Let this Scripture anchor your prayers today — I'm here when you want to talk to God about it.";
+  if (need === "learn") return "Sit with these words. There's depth here when you're ready to go further.";
+  if (need === "sit") return "You don't have to fix anything right now. Just breathe and receive.";
+  return "Carry this with you today — it's yours to keep.";
+}
+
+function pathDMirrorSummary() {
+  const carrying = getCarrying();
+  const need = getDNeed();
+  const carryingPart = carrying ? carrying.label.toLowerCase() : "where you are";
+  const needPart = need ? need.label.toLowerCase() : "support for today";
+  return `Here's what I heard: you're ${carryingPart}, and you'd like ${needPart}. Your For You feed is ready — picked for this season, not a generic scroll.`;
+}
+
+function chatCoachBubble(text, extraClass = "") {
+  return `<div class="chat-bubble chat-bubble--coach chat-bubble--enter ${extraClass}">${text}</div>`;
+}
+
+function chatUserBubble(text) {
+  return `<div class="chat-bubble chat-bubble--user chat-bubble--enter">${text}</div>`;
+}
+
+function chatAnchorBubble(anchor) {
+  return `<div class="chat-bubble chat-bubble--coach chat-bubble--enter chat-bubble--anchor">
+    <p class="chat-anchor-card__lead">Here's something for you to carry today</p>
+    <article class="chat-anchor-card">
+      <div class="chat-anchor-card__title">${anchor.title}</div>
+      <p class="chat-anchor-card__body">"${anchor.body}"</p>
+      <cite class="chat-anchor-card__ref">${anchor.ref}</cite>
+    </article>
+  </div>`;
+}
+
+function chatSampleStackMarkup(samples) {
+  if (!samples.length) return "";
+
+  const cards = samples
+    .map((s) => {
+      const liked = state.sampleLiked.has(s.key);
+      const disliked = state.sampleDisliked.has(s.key);
+      const cls = liked ? "is-liked" : disliked ? "is-passed" : "";
+      return `<div class="chat-sample-card ${cls}" data-sample-key="${s.key}">
+        <div class="chat-sample-card__row">
+          <div class="chat-sample-card__thumb" aria-hidden="true"></div>
+          <div class="chat-sample-card__meta">
+            <div class="chat-sample-card__type">${s.type}</div>
+            <div class="chat-sample-card__title">${s.title}</div>
+            <div class="chat-sample-card__sub">${s.meta}</div>
+          </div>
+        </div>
+        <div class="chat-sample-card__actions">
+          <button type="button" class="chat-sample-action chat-sample-action--like ${liked ? "is-active" : ""}" data-sample-like="${s.key}">Like</button>
+          <button type="button" class="chat-sample-action chat-sample-action--pass ${disliked ? "is-active" : ""}" data-sample-pass="${s.key}">Not for me</button>
+        </div>
+      </div>`;
+    })
+    .join("");
+
+  const rated = state.sampleLiked.size + state.sampleDisliked.size > 0;
+  const feedback = rated
+    ? state.sampleLiked.size
+      ? '<p class="chat-samples-hint">Got it — we\'ll prioritize what you liked.</p>'
+      : '<p class="chat-samples-hint">Thanks — we\'ll tune your feed.</p>'
+    : '<p class="chat-samples-hint">Tap like or not for me — optional, helps tune what you see next.</p>';
+
+  return `<div class="chat-bubble chat-bubble--coach chat-bubble--enter chat-bubble--samples">
+    <p class="chat-samples-lead">I found a couple more for your feed</p>
+    <div class="chat-sample-stack">${cards}</div>
+    ${feedback}
+  </div>`;
+}
+
+function chatTypingIndicator() {
+  return `<div class="chat-typing chat-bubble--enter" aria-live="polite" aria-label="Coach is typing">
+    <span class="chat-typing__dot"></span>
+    <span class="chat-typing__dot"></span>
+    <span class="chat-typing__dot"></span>
+  </div>`;
+}
+
+function renderPathDChatThread({ includeDob = false, includeMirror = false } = {}) {
+  let html = "";
+
+  if (state.dGreetingReady) {
+    html += chatCoachBubble(
+      "Welcome to MessengerX — I'm Coach. John & Lisa built this so bold biblical truth can meet you right where you are.",
+    );
+    html += chatCoachBubble("What brings you to Messenger today?");
+  }
+
+  if (state.carrying) {
+    html += chatUserBubble(getCarrying()?.label || "");
+  }
+
+  if (state.dAckReady) {
+    html += chatCoachBubble(getCarrying()?.coachReply || "");
+    html += chatCoachBubble("What would help most right now?");
+  }
+
+  if (state.dNeed) {
+    html += chatUserBubble(getDNeed()?.label || "");
+  }
+
+  if (state.dAnchorReady) {
+    const anchor = getCarrying()?.anchor;
+    if (anchor) html += chatAnchorBubble(anchor);
+    html += chatCoachBubble(pathDAnchorReflection());
+  }
+
+  if (state.dSamplesReady) {
+    html += chatSampleStackMarkup(pathDSampleSuggestions());
+  }
+
+  if (includeDob) {
+    html += chatCoachBubble(
+      "Before we keep talking, I need to ask one thing — it's required before full Coach chat. What month and year were you born?",
+    );
+  }
+
+  if (includeMirror) {
+    html += chatCoachBubble(pathDMirrorSummary());
+    html += chatCoachBubble("Give me a moment while I shape your feed…");
+  }
+
+  if (state.dTyping) html += chatTypingIndicator();
+
+  return html;
+}
+
+function renderPathDQuickReplies() {
+  if (state.dTyping) return "";
+
+  if (state.step === 0 && state.dTurn === 0 && state.dGreetingReady && !state.carrying) {
+    return `<div class="chat-quick-replies" role="radiogroup" aria-label="What brings you to Messenger">${CARRYING_OPTIONS.map(
+      (opt) =>
+        `<button type="button" class="chat-reply-chip" data-d-carrying="${opt.id}">${opt.label}</button>`,
+    ).join("")}</div>`;
+  }
+
+  if (state.step === 0 && state.dTurn === 1 && state.dAckReady && !state.dNeed) {
+    return `<div class="chat-quick-replies" role="radiogroup" aria-label="What would help most">${D_NEED_OPTIONS.map(
+      (opt) => `<button type="button" class="chat-reply-chip" data-d-need="${opt.id}">${opt.label}</button>`,
+    ).join("")}</div>`;
+  }
+
+  if (state.step === 0 && state.dTurn === 2 && state.dSamplesReady) {
+    return `<div class="chat-footer-actions">
+      <button type="button" class="btn-primary" data-action="d-chat-continue">Continue</button>
+    </div>`;
+  }
+
+  return "";
+}
+
+function renderPathDChatShell({ includeDob = false, includeMirror = false, dobFooter = "", mirrorFooter = "" } = {}) {
+  const thread = renderPathDChatThread({ includeDob, includeMirror });
+  const quickReplies = state.step === 0 ? renderPathDQuickReplies() : "";
+  const footer = dobFooter || mirrorFooter || quickReplies;
+
+  return `<div class="screen-onboarding screen-chat">
+    <div class="onboarding-inner onboarding-inner--chat">
+      ${topBarD(pathDProgressIndex())}
+      <div class="chat-header">
+        <span class="chat-header__avatar" aria-hidden="true">C</span>
+        <div class="chat-header__meta">
+          <span class="chat-header__name">Coach</span>
+          <span class="chat-header__status">Your guide in MessengerX</span>
+        </div>
+      </div>
+      <div class="chat-thread" data-chat-thread>${thread}</div>
+      <div class="chat-compose" data-chat-compose>${footer}</div>
+    </div>
+  </div>`;
+}
+
+function scrollChatThreadToEnd() {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const thread = document.querySelector("[data-chat-thread]");
+      if (!thread) return;
+      thread.scrollTop = thread.scrollHeight;
+    });
+  });
 }
 
 function handleBack(pathKey) {
@@ -255,6 +637,62 @@ function handleBack(pathKey) {
     return;
   }
 
+  if (pathKey === "d") {
+    if (state.step <= 0 && state.dTurn <= 0 && !state.carrying) {
+      navigate("/");
+      return;
+    }
+    cancelPathDTyping();
+    state.dTyping = false;
+    if (state.step === 3) {
+      cancelLoader();
+      state.loaderReady = false;
+      state.loaderStarted = false;
+      state.step = 2;
+      render();
+      return;
+    }
+    if (state.step === 2) {
+      state.step = 1;
+      render();
+      return;
+    }
+    if (state.step === 1) {
+      state.dobMonth = "";
+      state.dobYear = "";
+      state.dobVerified = false;
+      state.under13 = false;
+      state.step = 0;
+      state.dTurn = 2;
+      state.dAnchorReady = true;
+      state.dSamplesReady = true;
+      render();
+      return;
+    }
+    if (state.dTurn >= 2 && state.dSamplesReady) {
+      state.dSamplesReady = false;
+      render();
+      return;
+    }
+    if (state.dTurn >= 2) {
+      state.dTurn = 1;
+      state.dNeed = "";
+      state.dAnchorReady = false;
+      state.dSamplesReady = false;
+      render();
+      return;
+    }
+    if (state.dTurn === 1) {
+      state.dTurn = 0;
+      state.carrying = "";
+      state.dAckReady = false;
+      render();
+      return;
+    }
+    navigate("/");
+    return;
+  }
+
   if (state.step <= 0) {
     navigate("/");
     return;
@@ -286,6 +724,10 @@ function chipGrid(group = "interests") {
     (label) =>
       `<button type="button" class="chip ${selected.has(label) ? "is-selected" : ""}" data-chip="${label}" data-chip-group="${group}">${label}</button>`,
   ).join("")}</div>`;
+}
+
+function getCarrying() {
+  return CARRYING_OPTIONS.find((c) => c.id === state.carrying) || null;
 }
 
 function journeyPlanTitle() {
@@ -490,9 +932,9 @@ function renderHome() {
   return `<div class="screen-home">
     <div class="home-cluster">
       <div class="logo-mark" aria-hidden="true"></div>
-      <p class="eyebrow">Onboarding MVP v4.2.3</p>
+      <p class="eyebrow">Onboarding MVP v4.5.0</p>
       <h1 class="title">Messenger 4.0</h1>
-      <p class="subtitle subtitle--tight">Speed · taste · or a guided journey with a plan.</p>
+      <p class="subtitle subtitle--tight">Four onboarding hypotheses — speed, taste, journey, and Coach chat.</p>
       <a class="path-card" href="#/path-a" data-go="/path-a">
         <strong>Path A — Fast Start</strong>
         <span>Interests → DOB → See my For You → feed</span>
@@ -505,8 +947,12 @@ function renderHome() {
         <strong>Path C — Guided Journey</strong>
         <span>Intention → daily + Coach preview → plan Collection</span>
       </a>
+      <a class="path-card" href="#/path-d" data-go="/path-d">
+        <strong>Path D — Coach conversation</strong>
+        <span>Chat with Coach → anchor + picks → DOB → For You</span>
+      </a>
     </div>
-    <p class="meta-note home-meta">P-01 v4.2 · discovery.md</p>
+    <p class="meta-note home-meta">P-01 v4.5 · GitHub Pages</p>
   </div>`;
 }
 
@@ -779,7 +1225,47 @@ function renderPathC() {
   return renderForYou("c");
 }
 
+/* ─── Path D: Coach-led conversational onboarding → DOB → mirror → loader → feed ─── */
+function renderPathD() {
+  const steps = ["converse", "dob", "mirror", "loader", "feed"];
+  const step = steps[state.step] ?? "feed";
+
+  if (step === "converse") {
+    return renderPathDChatShell();
+  }
+
+  if (step === "dob") {
+    const dobFooter = `<div class="chat-dob-block">
+      ${dobFields("d")}
+      <div class="chat-footer-actions">
+        <button type="button" class="btn-primary" data-action="d-dob-continue" disabled>Continue</button>
+      </div>
+    </div>`;
+    return renderPathDChatShell({ includeDob: true, dobFooter });
+  }
+
+  if (step === "mirror") {
+    const mirrorFooter = `<div class="chat-footer-actions">
+      <button type="button" class="btn-primary" data-action="d-mirror-continue">Continue to my feed</button>
+    </div>`;
+    return renderPathDChatShell({ includeDob: true, includeMirror: true, mirrorFooter });
+  }
+
+  if (step === "loader") {
+    return loaderScreen({ showDaily: false, manualContinue: false, topBar: topBarD(5) });
+  }
+
+  return renderForYou("d");
+}
+
 function themeUnlockMarkup() {
+  const carrying = getCarrying();
+  if (state.path === "d" && carrying) {
+    const need = getDNeed();
+    const pills = [`<span class="theme-pill">${carrying.label}</span>`, `<span class="theme-pill">Matched for you</span>`];
+    if (need) pills.push(`<span class="theme-pill">${need.label}</span>`);
+    return pills.join("");
+  }
   const items = state.interests.size ? [...state.interests] : ["Daily anchor", "Faith content"];
   if (state.moreLikeThis && state.sampleLiked.size) items.unshift("Your picks");
   else if (state.moreLikeThis) items.unshift("Personalized");
@@ -789,14 +1275,21 @@ function themeUnlockMarkup() {
 function renderForYou(pathLabel) {
   const under13 = state.under13;
   const sawDaily = state.tasteComplete || state.anchorReflected || (pathLabel === "a" && state.loaderReady);
+  const carrying = getCarrying();
+  const anchorTitle = pathLabel === "d" && carrying ? carrying.anchor.title : DAILY_ANCHOR.title;
+
   const welcome =
     pathLabel === "c"
       ? "Your Collection is ready — Day 1 is underway"
-      : pathLabel === "b" && state.moreLikeThis
-        ? "Your feed — tuned to what you liked"
-        : sawDaily
-          ? "Good morning — today's daily is ready"
-          : "Good morning — here's For You";
+      : pathLabel === "d" && carrying
+        ? state.moreLikeThis
+          ? "Your feed — tuned to what you liked"
+          : `We're with you — ${carrying.label.toLowerCase()}`
+        : pathLabel === "b" && state.moreLikeThis
+            ? "Your feed — tuned to what you liked"
+            : sawDaily
+              ? "Good morning — today's daily is ready"
+              : "Good morning — here's For You";
 
   const giveBtn = under13
     ? ""
@@ -819,12 +1312,13 @@ function renderForYou(pathLabel) {
         <div class="daily-anchor__hero">
           <div>
             <div class="daily-anchor__label">MessengerX Daily</div>
-            <div class="daily-anchor__title">${DAILY_ANCHOR.title}</div>
+            <div class="daily-anchor__title">${anchorTitle}</div>
           </div>
         </div>
       </article>
       ${state.moreLikeThis ? `<p class="feed-section-label">More like what you picked</p>` : ""}
       ${pathLabel === "c" ? `<p class="feed-section-label">Recommended for your journey</p>` : ""}
+      ${pathLabel === "d" ? `<p class="feed-section-label">Picked for what you're carrying</p>` : ""}
       ${feedCards(pathLabel)}
     </div>
     <div class="feed-footer">
@@ -838,7 +1332,8 @@ function renderForYou(pathLabel) {
 
 function feedCards(pathLabel = "a") {
   if (state.moreLikeThis) {
-    return personalizedSamples()
+    const samples = pathLabel === "d" ? pathDPersonalizedFeedSamples() : personalizedSamples();
+    return samples
       .slice(0, 2)
       .map(
         (s) => `<div class="feed-card">
@@ -853,15 +1348,35 @@ function feedCards(pathLabel = "a") {
   }
 
   const themes = pathLabel === "c" ? [...state.intentions] : [...state.interests].slice(0, 2);
+  const carrying = getCarrying();
   const cards = [
     { type: "Scripture", title: DAILY_ANCHOR.title },
     { type: "Prayer", title: "A moment of stillness" },
   ];
-  if (themes.some((t) => t.includes("anxious") || t.includes("Peace") || t.includes("Mental"))) {
-    cards[1] = { type: "Reflection", title: "Peace for an anxious mind" };
+  if (pathLabel === "d" && carrying) {
+    cards[0] = { type: "Daily anchor", title: carrying.anchor.title };
+    const need = state.dNeed;
+    if (need === "prayer") {
+      cards[1] = { type: "Prayer", title: "A moment of stillness" };
+    } else if (need === "learn") {
+      cards[1] = { type: "Course", title: "Foundations of faith" };
+    } else if (need === "sit") {
+      cards[1] = { type: "Reflection", title: "Peace for an anxious mind" };
+    } else if (carrying.id === "anxious" || carrying.id === "lonely") {
+      cards[1] = { type: "Reflection", title: "Peace for an anxious mind" };
+    } else if (carrying.id === "grieving") {
+      cards[1] = { type: "Devotional", title: "Comfort in hard times" };
+    } else if (carrying.id === "habit" || carrying.id === "curious") {
+      cards[1] = { type: "Course", title: "Foundations of faith" };
+    }
   }
-  if (themes.some((t) => t.includes("Learning") || t.includes("Scripture"))) {
-    cards.push({ type: "Course", title: "Foundations of faith" });
+  if (pathLabel !== "d") {
+    if (themes.some((t) => t.includes("anxious") || t.includes("Peace") || t.includes("Mental"))) {
+      cards[1] = { type: "Reflection", title: "Peace for an anxious mind" };
+    }
+    if (themes.some((t) => t.includes("Learning") || t.includes("Scripture"))) {
+      cards.push({ type: "Course", title: "Foundations of faith" });
+    }
   }
   if (pathLabel === "c") {
     cards[1] = { type: "Guided prayer", title: JOURNEY_DAYS[1].title };
@@ -892,6 +1407,25 @@ function render() {
       requestAnimationFrame(() => {
         state.planRevealed = true;
         document.querySelector(".plan-reveal")?.classList.add("is-revealed");
+      });
+    }
+    cfg.bind();
+    return;
+  }
+
+  if (route === "/path-d") {
+    const cfg = { key: "d", render: renderPathD, bind: bindPathD, loaderStep: 3, feedStep: 4, manualLoader: false };
+    if (state.path !== cfg.key) resetState(cfg.key);
+    app.innerHTML = cfg.render();
+    if (state.step === cfg.loaderStep && !state.loaderStarted) {
+      state.loaderStarted = true;
+      runLoader({
+        manual: false,
+        onDone: () => {
+          state.loaderStarted = false;
+          state.step = cfg.feedStep;
+          render();
+        },
       });
     }
     cfg.bind();
@@ -998,6 +1532,7 @@ function bindSampleActions() {
       state.sampleDisliked.delete(key);
       if (state.sampleLiked.has(key)) state.sampleLiked.delete(key);
       else state.sampleLiked.add(key);
+      if (state.path === "d") state.moreLikeThis = state.sampleLiked.size > 0;
       render();
     });
   });
@@ -1008,6 +1543,7 @@ function bindSampleActions() {
       state.sampleLiked.delete(key);
       if (state.sampleDisliked.has(key)) state.sampleDisliked.delete(key);
       else state.sampleDisliked.add(key);
+      if (state.path === "d") state.moreLikeThis = state.sampleLiked.size > 0;
       render();
     });
   });
@@ -1212,6 +1748,65 @@ function bindPathC() {
   if (state.step === 6) bindFeed();
 }
 
+function bindPathD() {
+  bindDob("d-dob-continue");
+  bindBack("d");
+  bindSampleActions();
+
+  if (state.step === 0 && !state.dGreetingReady && !state.dTyping && !pathDTypingTimeoutId) {
+    startPathDTyping(() => {
+      state.dGreetingReady = true;
+    }, 800);
+  }
+
+  document.querySelectorAll("[data-d-carrying]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (state.dTyping || state.carrying) return;
+      state.carrying = btn.getAttribute("data-d-carrying");
+      state.dTurn = 1;
+      startPathDTyping(() => {
+        state.dAckReady = true;
+      }, 750);
+    });
+  });
+
+  document.querySelectorAll("[data-d-need]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (state.dTyping || state.dNeed) return;
+      state.dNeed = btn.getAttribute("data-d-need");
+      state.dTurn = 2;
+      startPathDTyping(() => {
+        state.dAnchorReady = true;
+        state.tasteComplete = true;
+        startPathDTyping(() => {
+          state.dSamplesReady = true;
+        }, 800);
+      }, 850);
+    });
+  });
+
+  document.querySelector('[data-action="d-chat-continue"]')?.addEventListener("click", () => {
+    state.step = 1;
+    render();
+  });
+
+  document.querySelector('[data-action="d-dob-continue"]')?.addEventListener("click", () => {
+    applyDob();
+    state.step = 2;
+    render();
+  });
+
+  document.querySelector('[data-action="d-mirror-continue"]')?.addEventListener("click", () => {
+    state.coachUsed = true;
+    state.step = 3;
+    render();
+  });
+
+  if (state.step === 4) bindFeed();
+
+  scrollChatThreadToEnd();
+}
+
 document.getElementById("app")?.addEventListener("click", (e) => {
   const go = e.target.closest("[data-go]");
   if (go) {
@@ -1220,6 +1815,7 @@ document.getElementById("app")?.addEventListener("click", (e) => {
     if (path === "/path-a") resetState("a");
     if (path === "/path-b") resetState("b");
     if (path === "/path-c") resetState("c");
+    if (path === "/path-d") resetState("d");
     navigate(path);
   }
 });
